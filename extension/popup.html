@@ -1,0 +1,114 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      width: 300px;
+      margin: 0;
+      padding: 16px;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #0f172a;
+      color: #f8fafc;
+    }
+    .header {
+      display: flex;
+      items-center: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .logo {
+      width: 32px;
+      height: 32px;
+      background: #2563eb;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .title {
+      font-size: 18px;
+      font-weight: 700;
+      margin: 0;
+    }
+    .status-card {
+      background: rgba(30, 41, 59, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 16px;
+    }
+    .status-item {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      font-size: 13px;
+    }
+    .status-label {
+      color: #94a3b8;
+    }
+    .status-value {
+      font-weight: 600;
+    }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 10px;
+      background: #2563eb;
+      color: white;
+      text-align: center;
+      text-decoration: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn:hover {
+      background: #3b82f6;
+    }
+    .pulse {
+      width: 8px;
+      height: 8px;
+      background: #10b981;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 6px;
+      box-shadow: 0 0 0 0 rgba(16, 185, 129, 1);
+      animation: pulse-green 2s infinite;
+    }
+    @keyframes pulse-green {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 6h16M4 10h16M4 14h16M4 18h16"></path>
+      </svg>
+    </div>
+    <h1 class="title">TabFlow <span style="color: #60a5fa">AI</span></h1>
+  </div>
+
+  <div class="status-card">
+    <div class="status-item">
+      <span class="status-label">Extension Status</span>
+      <span class="status-value"><span class="pulse"></span>Active</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">Tabs Tracked</span>
+      <span class="status-value" id="tab-count">--</span>
+    </div>
+  </div>
+
+  <button class="btn" id="open-dashboard">Open Dashboard</button>
+
+  <script src="popup.js"></script>
+</body>
+</html>

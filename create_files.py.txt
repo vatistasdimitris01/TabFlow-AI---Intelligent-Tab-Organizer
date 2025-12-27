@@ -1,0 +1,362 @@
+
+import os
+import json
+
+# TabFlow AI - Vercel & Extension Deployment Script
+# This script generates a project structure ready for Vercel deployment (web)
+# and local installation (browser extension).
+
+def setup_vercel_project():
+    project_name = "tabflow_ai_deploy"
+    
+    # Define project structure
+    # The root of the folder will be the web app for Vercel.
+    # The 'extension' folder is for the browser.
+    
+    files = {
+        # --- WEB APP (Vercel Root) ---
+        "vercel.json": json.dumps({
+            "version": 2,
+            "cleanUrls": True,
+            "rewrites": [{"source": "/(.*)", "destination": "/index.html"}]
+        }, indent=2),
+
+        "index.html": """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TabFlow AI | Workspace Optimizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: #020617; 
+            color: #f8fafc;
+            overflow-x: hidden;
+        }
+        .glass { 
+            background: rgba(15, 23, 42, 0.6); 
+            backdrop-filter: blur(16px); 
+            border: 1px solid rgba(255, 255, 255, 0.08); 
+        }
+        .glow-blue { box-shadow: 0 0 40px -10px rgba(37, 99, 235, 0.3); }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+    </style>
+    <script type="importmap">
+    {
+      "imports": {
+        "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+        "react/": "https://esm.sh/react@^19.2.3/",
+        "react": "https://esm.sh/react@^19.2.3",
+        "@google/genai": "https://esm.sh/@google/genai@^1.34.0"
+      }
+    }
+    </script>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="module" src="index.tsx"></script>
+</body>
+</html>""",
+
+        "index.tsx": """import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
+
+const rootElement = document.getElementById('root');
+if (rootElement) {
+  const root = ReactDOM.createRoot(rootElement);
+  root.render(<React.StrictMode><App /></React.StrictMode>);
+}""",
+
+        "types.ts": """export interface Tab { id: string; url: string; title: string; favIconUrl?: string; lastAccessed?: number; groupId?: string; }
+export interface TabGroup { id: string; name: string; description: string; color: string; tabIds: string[]; }
+export interface AIResult { groups: { name: string; description: string; color: string; tabIndices: number[]; }[]; }""",
+
+        "constants.tsx": """export const COLORS = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#6366f1'];""",
+
+        "services/geminiService.ts": """import { GoogleGenAI, Type } from "@google/genai";
+import { Tab, AIResult } from "../types";
+
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+
+export const categorizeTabs = async (tabs: Tab[]): Promise<AIResult | null> => {
+  if (!tabs.length) return null;
+  const tabList = tabs.map((t, i) => `[\${i}] \${t.title} (\${t.url})`).join('\\n');
+  
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash-lite',
+      contents: `You are a productivity assistant. Organize these browser tabs into 4-6 logical groups. Give each group a name, clear description, and a CSS hex color. Return as JSON.\\n\\nTabs:\\n\${tabList}`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            groups: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  name: { type: Type.STRING },
+                  description: { type: Type.STRING },
+                  color: { type: Type.STRING },
+                  tabIndices: { type: Type.ARRAY, items: { type: Type.INTEGER } }
+                },
+                required: ["name", "description", "color", "tabIndices"]
+              }
+            }
+          },
+          required: ["groups"]
+        }
+      }
+    });
+    return JSON.parse(response.text) as AIResult;
+  } catch (error) {
+    console.error("AI Grouping Error:", error);
+    return null;
+  }
+};""",
+
+        "App.tsx": """import React, { useState, useEffect, useMemo } from 'react';
+import { Tab, TabGroup } from './types';
+import { COLORS } from './constants';
+import { categorizeTabs } from './services/geminiService';
+
+const App: React.FC = () => {
+  const [tabs, setTabs] = useState<Tab[]>([]);
+  const [groups, setGroups] = useState<TabGroup[]>([]);
+  const [isOrganizing, setIsOrganizing] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [connection, setConnection] = useState<'offline' | 'online' | 'syncing'>('offline');
+
+  useEffect(() => {
+    const handleMessage = (e: MessageEvent) => {
+      if (e.data?.source !== 'tabflow-extension') return;
+      if (e.data.action === 'TABS_UPDATE') { setTabs(e.data.data); setConnection('online'); }
+      if (e.data.action === 'PONG') { setConnection('online'); window.postMessage({ source: 'tabflow-page', action: 'GET_TABS' }, '*'); }
+    };
+    window.addEventListener('message', handleMessage);
+    const ping = setInterval(() => window.postMessage({ source: 'tabflow-page', action: 'PING' }, '*'), 1500);
+    return () => { window.removeEventListener('message', handleMessage); clearInterval(ping); };
+  }, []);
+
+  const runAI = async () => {
+    if (!tabs.length) return;
+    setIsOrganizing(true);
+    setConnection('syncing');
+    try {
+      const result = await categorizeTabs(tabs);
+      if (result) {
+        const mapped = result.groups.map((g, i) => ({
+          id: `ai-group-\${i}-\${Date.now()}`,
+          name: g.name,
+          description: g.description,
+          color: g.color || COLORS[i % COLORS.length],
+          tabIds: g.tabIndices.map(idx => tabs[idx]?.id).filter(Boolean)
+        }));
+        setGroups(mapped);
+        window.postMessage({ source: 'tabflow-page', action: 'APPLY_GROUPS', data: mapped }, '*');
+      }
+    } finally { 
+      setIsOrganizing(false); 
+      setConnection('online');
+    }
+  };
+
+  const filtered = useMemo(() => tabs.filter(t => t.title.toLowerCase().includes(searchTerm.toLowerCase())), [tabs, searchTerm]);
+  const groupedIds = new Set(groups.flatMap(g => g.tabIds));
+  const orphans = filtered.filter(t => !groupedIds.has(t.id));
+
+  return (
+    <div className="min-h-screen p-6 md:p-12">
+      <nav className="glass p-5 rounded-[2rem] flex flex-col md:flex-row justify-between items-center gap-6 mb-12 glow-blue">
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center font-black text-xl italic shadow-lg shadow-blue-500/20">T</div>
+          <div>
+            <h1 className="text-xl font-black tracking-tighter">TABFLOW <span className="text-blue-500">AI</span></h1>
+            <p className="text-[10px] uppercase font-bold tracking-widest text-slate-500 flex items-center gap-2">
+              <span className={`w-1.5 h-1.5 rounded-full \${connection === 'online' ? 'bg-emerald-500' : connection === 'syncing' ? 'bg-amber-500 animate-pulse' : 'bg-rose-500'}`} />
+              \${connection} Bridge
+            </p>
+          </div>
+        </div>
+        
+        <div className="flex flex-1 max-w-xl gap-3 w-full">
+           <input 
+             type="text" 
+             placeholder="Search active tabs..." 
+             className="w-full bg-slate-900/50 border border-white/5 rounded-2xl px-5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+             onChange={e => setSearchTerm(e.target.value)}
+           />
+           <button 
+             onClick={runAI} 
+             disabled={isOrganizing || connection === 'offline'}
+             className="bg-blue-600 hover:bg-blue-500 disabled:opacity-30 text-white px-8 py-3 rounded-2xl font-bold transition-all shadow-lg active:scale-95 whitespace-nowrap"
+           >
+             {isOrganizing ? 'Clustering...' : 'AI Organize'}
+           </button>
+        </div>
+      </nav>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        <section className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+          {groups.map(g => (
+            <div key={g.id} className="glass rounded-3xl p-6 border-t-[6px]" style={{borderColor: g.color}}>
+              <div className="mb-4">
+                <h3 className="font-bold text-lg text-white">{g.name}</h3>
+                <p className="text-[11px] text-slate-400 font-medium line-clamp-1 italic">{g.description}</p>
+              </div>
+              <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-2">
+                {g.tabIds.map(id => {
+                  const t = tabs.find(x => x.id === id);
+                  if (!t) return null;
+                  return (
+                    <div key={id} className="flex items-center gap-3 p-2 bg-white/5 rounded-xl border border-white/5 group hover:bg-white/10 transition-colors cursor-pointer" onClick={() => window.postMessage({source:'tabflow-page', action:'TAB_ACTION', data:{action:'FOCUS', tabId:parseInt(id)}}, '*')}>
+                      <img src={t.favIconUrl} className="w-3.5 h-3.5 shrink-0" onError={e => e.currentTarget.style.opacity='0'} />
+                      <span className="text-[11px] font-semibold truncate flex-1">{t.title}</span>
+                      <button className="opacity-0 group-hover:opacity-100 p-1 hover:text-rose-400" onClick={(e) => {e.stopPropagation(); window.postMessage({source:'tabflow-page', action:'TAB_ACTION', data:{action:'CLOSE', tabId:parseInt(id)}}, '*')}}>
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M6 18L18 6M6 6l12 12" strokeWidth="3" /></svg>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          {groups.length === 0 && (
+            <div className="col-span-full py-32 text-center glass rounded-[3rem] border-dashed border-2 border-white/10">
+              <div className="text-4xl mb-4 opacity-20 font-black italic">GEN 2.0</div>
+              <p className="text-slate-500 font-medium px-12">Connect the extension bridge to start organizing your digital brain with Gemini 2.0 Flash Lite.</p>
+            </div>
+          )}
+        </section>
+
+        <aside className="lg:col-span-4 glass rounded-[2.5rem] p-8 max-h-[80vh] flex flex-col">
+          <h2 className="font-bold text-white text-xl mb-6 flex justify-between items-center">
+            Stream
+            <span className="text-[10px] bg-slate-800 px-3 py-1 rounded-full text-slate-400 font-bold">{orphans.length}</span>
+          </h2>
+          <div className="flex flex-col gap-2 overflow-y-auto custom-scrollbar flex-1 pr-2">
+            {orphans.map(t => (
+               <div key={t.id} className="flex items-center gap-4 p-3 bg-white/5 rounded-2xl border border-white/5 hover:border-white/10 transition-all cursor-pointer" onClick={() => window.postMessage({source:'tabflow-page', action:'TAB_ACTION', data:{action:'FOCUS', tabId:parseInt(t.id)}}, '*')}>
+                 <img src={t.favIconUrl} className="w-4 h-4 rounded" />
+                 <span className="text-xs font-bold truncate flex-1">{t.title}</span>
+               </div>
+            ))}
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+};
+export default App;""",
+
+        # --- BROWSER EXTENSION (Local folder) ---
+        "extension/manifest.json": json.dumps({
+            "manifest_version": 3,
+            "name": "TabFlow AI Bridge",
+            "version": "1.0.1",
+            "permissions": ["tabs", "tabGroups", "storage"],
+            "host_permissions": ["<all_urls>"],
+            "background": {"service_worker": "background.js"},
+            "content_scripts": [{
+                "matches": ["<all_urls>"],
+                "js": ["content.js"],
+                "run_at": "document_start"
+            }],
+            "action": {"default_popup": "popup.html", "default_icon": "icon.svg"},
+            "icons": {"128": "icon.svg"}
+        }, indent=2),
+
+        "extension/background.js": """chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
+  if (req.action === 'GET_TABS') {
+    chrome.tabs.query({}, (tabs) => {
+      sendResponse({ tabs: tabs.map(t => ({ id: t.id.toString(), url: t.url, title: t.title, favIconUrl: t.favIconUrl, groupId: t.groupId })) });
+    });
+    return true;
+  }
+  if (req.action === 'TAB_ACTION') {
+    const { action, tabId } = req.data;
+    if (action === 'CLOSE') chrome.tabs.remove(tabId);
+    else if (action === 'FOCUS') { chrome.tabs.update(tabId, { active: true }); chrome.tabs.get(tabId, t => chrome.windows.update(t.windowId, { focused: true })); }
+  }
+  if (req.action === 'APPLY_GROUPS') {
+    req.data.forEach(async (g) => {
+      const tabIds = g.tabIds.map(id => parseInt(id)).filter(id => !isNaN(id));
+      if (tabIds.length) {
+        const groupId = await chrome.tabs.group({ tabIds });
+        const colors = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
+        chrome.tabGroups.update(groupId, { title: g.name, color: colors[Math.floor(Math.random() * colors.length)] });
+      }
+    });
+  }
+});""",
+
+        "extension/content.js": """window.addEventListener('message', (e) => {
+  if (e.data?.source !== 'tabflow-page') return;
+  if (e.data.action === 'PING') { window.postMessage({ source: 'tabflow-extension', action: 'PONG' }, '*'); return; }
+  chrome.runtime.sendMessage({ action: e.data.action, data: e.data.data }, (res) => {
+    if (res?.tabs) window.postMessage({ source: 'tabflow-extension', action: 'TABS_UPDATE', data: res.tabs }, '*');
+  });
+});""",
+
+        "extension/popup.html": """<!DOCTYPE html><html><body style="width:220px;background:#020617;color:white;padding:20px;font-family:sans-serif;border-radius:15px;">
+  <h2 style="font-weight:900;margin:0 0 15px 0;letter-spacing:-1px;">TabFlow <span style="color:#2563eb;">AI</span></h2>
+  <p style="font-size:11px;color:#64748b;margin-bottom:20px;">Bridge is currently active and waiting for dashboard connection.</p>
+  <button id="go" style="width:100%;padding:12px;background:#2563eb;color:white;border:none;border-radius:10px;font-weight:700;cursor:pointer;">Launch Dashboard</button>
+  <script>document.getElementById('go').onclick=()=>chrome.tabs.create({url:'https://your-vercel-deployment.vercel.app'});</script>
+</body></html>""",
+
+        "extension/icon.svg": """<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="128" height="128" rx="28" fill="#2563EB"/><path d="M36 45H92M36 64H92M36 83H64" stroke="white" stroke-width="8" stroke-linecap="round"/></svg>""",
+
+        "README.txt": """TABFLOW AI - DEPLOYMENT GUIDE
+
+1. VERCEL DEPLOYMENT (DASHBOARD):
+   - Push all files in the root folder (EXCEPT the 'extension' folder) to a GitHub Repo.
+   - Connect the Repo to Vercel.
+   - IN VERCEL DASHBOARD:
+     a) Go to Settings -> Environment Variables.
+     b) Add a new variable:
+        Key: API_KEY
+        Value: [Your Gemini API Key]
+     c) Save and Redeploy.
+
+2. EXTENSION INSTALLATION (CHROME):
+   - Open chrome://extensions
+   - Turn on 'Developer mode'.
+   - Click 'Load unpacked'.
+   - SELECT THE 'extension' FOLDER (the one inside 'tabflow_ai_deploy').
+   - DO NOT SELECT THE ENTIRE ROOT FOLDER.
+
+3. CONFIGURATION:
+   - Edit extension/popup.html: Change 'your-vercel-deployment.vercel.app' to your actual Vercel URL.
+   - Refresh the extension in chrome://extensions after editing.
+   
+4. USE:
+   - Open your Vercel URL.
+   - Once the extension bridge says 'online', click 'AI Organize'!"""
+    }
+
+    print(f"--- Creating Vercel-Ready Project: ./{project_name} ---")
+
+    for path, content in files.items():
+        full_path = os.path.join(project_name, path)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        with open(full_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"Created: {full_path}")
+
+    print("\n--- SETUP COMPLETE ---")
+    print(f"1. Push the files inside ./{project_name} to GitHub for Vercel deployment.")
+    print(f"2. Add API_KEY to Vercel Environment Variables.")
+    print(f"3. Install the browser extension from ./{project_name}/extension")
+
+if __name__ == "__main__":
+    setup_vercel_project()
