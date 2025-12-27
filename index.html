@@ -7,19 +7,20 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="icon" type="image/svg+xml" href="extension/icon.svg">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2220%22 fill=%22%232563EB%22/><path d=%22M25 35H75M25 50H75M25 65H50%22 stroke=%22white%22 stroke-width=%228%22 stroke-linecap=%22round%22/></svg>">
     <style>
       body {
         font-family: 'Inter', sans-serif;
-        background-color: #0f172a;
+        background-color: #020617;
         color: #f8fafc;
         margin: 0;
+        overflow-x: hidden;
       }
       .glass-panel {
-        background: rgba(30, 41, 59, 0.7);
-        backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(15, 23, 42, 0.6);
+        backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
       }
     </style>
     <script type="importmap">
@@ -35,7 +36,6 @@
   </head>
   <body>
     <div id="root"></div>
-    <!-- This script tag was missing, causing the "blue screen" (app not loading) -->
     <script type="module" src="index.tsx"></script>
   </body>
 </html>

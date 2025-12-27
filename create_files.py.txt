@@ -2,18 +2,18 @@ import os
 import json
 
 # TabFlow AI - Extension Bridge Setup Script
-# This script generates ONLY the browser extension files.
+# Use this to generate the local browser extension.
 # The Web Dashboard should be deployed to Vercel separately.
 
-def setup_extension_only():
+def setup_extension():
     folder = "tabflow_extension"
     
     files = {
         "manifest.json": json.dumps({
             "manifest_version": 3,
             "name": "TabFlow AI Bridge",
-            "version": "1.0.4",
-            "description": "Bridges your browser tabs with the TabFlow AI Dashboard.",
+            "version": "1.0.5",
+            "description": "Bridges real browser tabs with your TabFlow AI Dashboard.",
             "permissions": ["tabs", "tabGroups", "storage"],
             "host_permissions": ["<all_urls>"],
             "background": {"service_worker": "background.js"},
@@ -56,8 +56,7 @@ def setup_extension_only():
   }
 
   if (req.action === 'APPLY_GROUPS') {
-    const groups = req.data;
-    groups.forEach(async (g) => {
+    req.data.forEach(async (g) => {
       const tabIds = g.tabIds.map(id => parseInt(id)).filter(id => !isNaN(id));
       if (tabIds.length > 0) {
         try {
@@ -67,9 +66,7 @@ def setup_extension_only():
             title: g.name, 
             color: colors[Math.floor(Math.random() * colors.length)] 
           });
-        } catch (e) {
-          console.error("Failed to group tabs", e);
-        }
+        } catch (e) {}
       }
     });
   }
@@ -113,27 +110,24 @@ chrome.runtime.onMessage.addListener((msg) => {
   <meta charset="UTF-8">
   <style>
     body { width: 220px; margin: 0; padding: 16px; font-family: sans-serif; background: #020617; color: white; border-radius: 12px; }
-    .header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-    .logo { width: 28px; height: 28px; background: #2563eb; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 900; }
-    .btn { display: block; width: 100%; padding: 10px; background: #2563eb; color: white; border-radius: 6px; font-weight: 700; border: none; cursor: pointer; transition: background 0.2s; }
+    .logo { width: 28px; height: 28px; background: #2563eb; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 900; margin-bottom: 12px; }
+    .btn { display: block; width: 100%; padding: 12px; background: #2563eb; color: white; border-radius: 8px; font-weight: 700; border: none; cursor: pointer; transition: background 0.2s; }
     .btn:hover { background: #3b82f6; }
     .status { font-size: 11px; color: #64748b; margin-top: 10px; text-align: center; }
   </style>
 </head>
 <body>
-  <div class="header">
-    <div class="logo">T</div>
-    <h2 style="font-size: 15px; margin: 0;">TabFlow <span style="color: #60a5fa">AI</span></h2>
-  </div>
-  <button class="btn" id="launch">Open Dashboard</button>
-  <div class="status">Bridge is active</div>
+  <div class="logo">T</div>
+  <h2 style="font-size: 16px; margin: 0 0 15px 0;">TabFlow <span style="color: #60a5fa">AI</span></h2>
+  <button class="btn" id="launch">Launch Dashboard</button>
+  <div class="status">Extension Bridge Active</div>
   <script src="popup.js"></script>
 </body>
 </html>""",
 
         "popup.js": """document.addEventListener('DOMContentLoaded', () => {
   const launchBtn = document.getElementById('launch');
-  // CHANGE THIS TO YOUR ACTUAL VERCEL URL
+  // REPLACE WITH YOUR ACTUAL VERCEL URL
   const DASHBOARD_URL = "https://your-app.vercel.app";
 
   launchBtn.addEventListener('click', () => {
@@ -154,7 +148,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 </svg>"""
     }
 
-    print(f"--- Generating Extension Folder: ./{folder} ---")
+    print(f"--- Creating Extension Folder: ./{folder} ---")
     os.makedirs(folder, exist_ok=True)
     for path, content in files.items():
         full_path = os.path.join(folder, path)
@@ -162,8 +156,8 @@ chrome.runtime.onMessage.addListener((msg) => {
             f.write(content)
         print(f"Created: {full_path}")
     print("\n--- NEXT STEPS ---")
-    print("1. Install extension from ./" + folder)
-    print("2. Set 'API_KEY' in Vercel Environment Variables.")
+    print("1. Go to chrome://extensions")
+    print("2. Click 'Load unpacked' and select the folder you just created.")
 
 if __name__ == "__main__":
-    setup_extension_only()
+    setup_extension()
