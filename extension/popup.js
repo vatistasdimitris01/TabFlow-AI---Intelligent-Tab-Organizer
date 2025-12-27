@@ -1,25 +1,19 @@
-
 document.addEventListener('DOMContentLoaded', () => {
-  const tabCountEl = document.getElementById('tab-count');
-  const openBtn = document.getElementById('open-dashboard');
+  const launchBtn = document.getElementById('launch-dashboard');
 
-  // Fetch tab count on open
-  chrome.tabs.query({}, (tabs) => {
-    tabCountEl.textContent = tabs.length;
-  });
+  // Replace this with your actual Vercel deployment URL
+  const DASHBOARD_URL = "https://your-app-name.vercel.app";
 
-  // Open the dashboard web app
-  openBtn.addEventListener('click', () => {
-    // In a real production scenario, this would be your hosted URL
-    // For local development, we'll try to find the existing tab or open a new one
-    const dashboardUrl = "http://localhost:3000"; // Placeholder for your dev environment
-    
-    chrome.tabs.query({ url: dashboardUrl + "/*" }, (tabs) => {
+  launchBtn.addEventListener('click', () => {
+    // Check if dashboard is already open
+    chrome.tabs.query({ url: DASHBOARD_URL + "/*" }, (tabs) => {
       if (tabs.length > 0) {
+        // Focus existing tab
         chrome.tabs.update(tabs[0].id, { active: true });
         chrome.windows.update(tabs[0].windowId, { focused: true });
       } else {
-        chrome.tabs.create({ url: dashboardUrl });
+        // Open new tab
+        chrome.tabs.create({ url: DASHBOARD_URL });
       }
     });
   });
