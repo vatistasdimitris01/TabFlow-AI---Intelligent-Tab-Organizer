@@ -1,8 +1,21 @@
-
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Tab, TabGroup } from './types';
 import { COLORS } from './constants';
 import { categorizeTabs, StreamUpdate } from './services/geminiService';
+
+// Define the window interface for AI Studio tools
+// Fixing "All declarations of 'aistudio' must have identical modifiers" and 
+// "Property 'aistudio' must be of type 'AIStudio'" by using matched naming and modifiers.
+declare global {
+  interface AIStudio {
+    hasSelectedApiKey: () => Promise<boolean>;
+    openSelectKey: () => Promise<void>;
+  }
+
+  interface Window {
+    readonly aistudio: AIStudio;
+  }
+}
 
 const App: React.FC = () => {
   const [tabs, setTabs] = useState<Tab[]>([]);
@@ -11,9 +24,21 @@ const App: React.FC = () => {
   const [statusMessage, setStatusMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  const [hasApiKey, setHasApiKey] = useState<boolean>(false);
   const [groundingSources, setGroundingSources] = useState<any[]>([]);
 
   useEffect(() => {
+    // Check for existing API Key on mount
+    const checkKey = async () => {
+      try {
+        const hasKey = await window.aistudio.hasSelectedApiKey();
+        setHasApiKey(hasKey);
+      } catch (e) {
+        console.error("Failed to check API key status", e);
+      }
+    };
+    checkKey();
+
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.source !== 'tabflow-extension') return;
       const { action, data } = event.data;
@@ -35,8 +60,31 @@ const App: React.FC = () => {
     };
   }, []);
 
+  const handleOpenKeySelection = async () => {
+    try {
+      await window.aistudio.openSelectKey();
+      setHasApiKey(true); // Assume success per instructions
+    } catch (e) {
+      console.error("Failed to open key selection", e);
+    }
+  };
+
   const handleOrganize = async () => {
+    // 1. Ensure extension is connected
+    if (connectionStatus !== 'connected') {
+      window.postMessage({ source: 'tabflow-page', action: 'GET_TABS' }, '*');
+      return;
+    }
+
+    // 2. Ensure API Key is selected
+    const hasKey = await window.aistudio.hasSelectedApiKey();
+    if (!hasKey) {
+      await handleOpenKeySelection();
+      return;
+    }
+
     if (tabs.length === 0) return;
+    
     setIsOrganizing(true);
     setStatusMessage('Connecting...');
     setGroundingSources([]);
@@ -44,7 +92,7 @@ const App: React.FC = () => {
     try {
       await categorizeTabs(tabs, (update: StreamUpdate) => {
         if (update.status === 'error') {
-          setStatusMessage(`Failed: ${update.message}`);
+          setStatusMessage(`Error: ${update.message}`);
           setIsOrganizing(false);
         } else if (update.status === 'success' && update.data) {
           const newGroups: TabGroup[] = update.data.groups.map((g, idx) => ({
@@ -109,11 +157,23 @@ const App: React.FC = () => {
           </div>
           <div>
             <h1 className="text-2xl font-black text-white tracking-tight">TabFlow <span className="text-blue-400">AI</span></h1>
-            <div className="flex items-center gap-2 mt-0.5">
-              <div className={`w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                {connectionStatus === 'connected' ? 'Bridge Active' : 'Extension Offline'}
-              </span>
+            <div className="flex items-center gap-3 mt-1">
+              <div className="flex items-center gap-1.5">
+                <div className={`w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+                <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
+                  {connectionStatus === 'connected' ? 'Bridge Active' : 'Extension Offline'}
+                </span>
+              </div>
+              <div className="w-px h-2 bg-slate-800" />
+              <button 
+                onClick={handleOpenKeySelection}
+                className="flex items-center gap-1.5 group"
+              >
+                <div className={`w-2 h-2 rounded-full ${hasApiKey ? 'bg-blue-400' : 'bg-amber-500 animate-bounce'}`} />
+                <span className={`text-[9px] font-bold uppercase tracking-widest transition-colors ${hasApiKey ? 'text-slate-400 group-hover:text-blue-400' : 'text-amber-400'}`}>
+                  {hasApiKey ? 'API Connected' : 'Key Required'}
+                </span>
+              </button>
             </div>
           </div>
         </div>
@@ -133,34 +193,60 @@ const App: React.FC = () => {
           </div>
 
           <button 
-            onClick={connectionStatus === 'connected' ? handleOrganize : () => window.postMessage({ source: 'tabflow-page', action: 'GET_TABS' }, '*')}
+            onClick={handleOrganize}
             disabled={isOrganizing}
             className={`flex items-center gap-2 px-7 py-3 rounded-2xl font-bold transition-all shadow-xl active:scale-95 disabled:opacity-50 whitespace-nowrap
-              ${connectionStatus === 'connected' 
-                ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/25 ring-2 ring-blue-400/20' 
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 ring-1 ring-white/10'}`}
+              ${!hasApiKey 
+                ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-500/25 ring-2 ring-amber-400/20'
+                : connectionStatus === 'connected' 
+                  ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/25 ring-2 ring-blue-400/20' 
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 ring-1 ring-white/10'}`}
           >
             {isOrganizing ? (
               <>
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                <span className="ml-2">Sorting...</span>
+                <span className="ml-2">AI Working...</span>
               </>
             ) : (
               <>
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
-                {connectionStatus === 'connected' ? 'Group with AI' : 'Sync Tabs'}
+                {!hasApiKey ? 'Connect API Key' : connectionStatus === 'connected' ? 'Group with AI' : 'Sync Tabs'}
               </>
             )}
           </button>
         </div>
       </header>
 
+      {!hasApiKey && (
+        <div className="glass-panel p-6 rounded-[32px] border-amber-500/30 bg-amber-500/5 flex flex-col md:flex-row items-center justify-between gap-6 animate-fade-in shadow-amber-900/10">
+          <div className="flex gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/20 flex items-center justify-center text-amber-500 shrink-0">
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="font-bold text-white text-lg">Personal Gemini API Key Required</h3>
+              <p className="text-slate-400 text-sm max-w-xl">
+                To use the organizer, you need to connect your own Gemini API key. This ensures high speed and private usage. It's free to get from Google AI Studio.
+              </p>
+            </div>
+          </div>
+          <button 
+            onClick={handleOpenKeySelection}
+            className="px-6 py-3 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-2xl transition-all shadow-lg active:scale-95 whitespace-nowrap"
+          >
+            Select API Key
+          </button>
+        </div>
+      )}
+
       {statusMessage && (
-        <div className={`glass-panel p-4 rounded-2xl flex items-center gap-3 animate-fade-in border ${statusMessage.startsWith('Failed') ? 'border-red-500/30 bg-red-500/5' : 'border-blue-500/30 bg-blue-500/5'}`}>
-          <div className={`w-2 h-2 rounded-full ${statusMessage.startsWith('Failed') ? 'bg-red-500' : 'bg-blue-400 animate-ping'}`} />
-          <span className={`text-xs font-bold uppercase tracking-widest ${statusMessage.startsWith('Failed') ? 'text-red-400' : 'text-blue-400'}`}>
+        <div className={`glass-panel p-4 rounded-2xl flex items-center gap-3 animate-fade-in border ${statusMessage.startsWith('Error') ? 'border-red-500/30 bg-red-500/5' : 'border-blue-500/30 bg-blue-500/5'}`}>
+          <div className={`w-2 h-2 rounded-full ${statusMessage.startsWith('Error') ? 'bg-red-500' : 'bg-blue-400 animate-ping'}`} />
+          <span className={`text-xs font-bold uppercase tracking-widest ${statusMessage.startsWith('Error') ? 'text-red-400' : 'text-blue-400'}`}>
             {statusMessage}
           </span>
         </div>
@@ -203,8 +289,16 @@ const App: React.FC = () => {
               </div>
               <h2 className="text-2xl font-bold text-white mb-3 text-center px-4">Workspace Organizer</h2>
               <p className="text-slate-500 text-center max-w-sm px-6 text-sm leading-relaxed">
-                Unlock higher productivity with Gemini 2.0. Categorize your messy tabs into AI-powered workspaces instantly.
+                Connect your API key to unlock Gemini 2.0 Flash Lite. Categorize your messy tabs into AI-powered workspaces instantly.
               </p>
+              {!hasApiKey && (
+                <button 
+                  onClick={handleOpenKeySelection}
+                  className="mt-6 text-blue-400 hover:text-blue-300 font-bold text-sm underline underline-offset-4"
+                >
+                  Connect your key to start
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -231,7 +325,7 @@ const App: React.FC = () => {
                 ))
               ) : (
                 <div className="py-20 text-center text-slate-600 text-sm italic">
-                  {searchTerm ? 'No results found' : 'All tabs are categorized!'}
+                  {searchTerm ? 'No results found' : 'All tabs are organized!'}
                 </div>
               )}
             </div>
@@ -243,7 +337,7 @@ const App: React.FC = () => {
                  <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
                  </svg>
-                 AI Search Grounding
+                 AI Search Context
                </h3>
                <div className="flex flex-col gap-2">
                  {groundingSources.map((chunk, idx) => (
@@ -262,6 +356,18 @@ const App: React.FC = () => {
                </div>
             </div>
           )}
+          
+          <div className="p-6 rounded-[32px] bg-slate-900/40 border border-white/5 text-[10px] text-slate-500 leading-relaxed">
+            <p className="font-bold mb-2 text-slate-400 uppercase tracking-tighter">About Your Security</p>
+            This app uses your personal API key directly from your browser. Your data never touches our servers. Each call is billed against your own Google AI Studio quota.
+            <a 
+              href="https://ai.google.dev/gemini-api/docs/billing" 
+              target="_blank" 
+              className="block mt-2 text-blue-400 underline"
+            >
+              Learn about Gemini billing →
+            </a>
+          </div>
         </div>
       </main>
 
