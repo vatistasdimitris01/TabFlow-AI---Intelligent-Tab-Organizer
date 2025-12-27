@@ -12,30 +12,39 @@ export default async function handler(req: Request) {
 
   try {
     const { tabs } = await req.json();
+    
+    // 1. Check if user provided their own key in the request header
+    const userApiKey = req.headers.get('X-Gemini-API-Key');
+    
+    // 2. Get environment keys for rotation/fallback
     const rawKeys = process.env.API_KEY || "";
-    // Support multiple keys separated by commas for rotation
-    const apiKeys = rawKeys.split(',').map(k => k.trim()).filter(k => k.length > 0);
+    const envApiKeys = rawKeys.split(',').map(k => k.trim()).filter(k => k.length > 0);
 
-    if (apiKeys.length === 0) {
-      return new Response(JSON.stringify({ error: 'No API_KEY configured. Please add one or more (comma-separated) to Vercel env.' }), {
+    // Prioritize user key, then env keys
+    const keysToTry = userApiKey ? [userApiKey] : envApiKeys;
+
+    if (keysToTry.length === 0) {
+      return new Response(JSON.stringify({ error: 'No API key available. Please connect your own key or configure the server.' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' },
       });
     }
 
     const tabList = tabs.map((t: any, idx: number) => `[${idx}] Title: ${t.title} | URL: ${t.url}`).join('\n');
-    
     const encoder = new TextEncoder();
+
     const stream = new ReadableStream({
       async start(controller) {
-        controller.enqueue(encoder.encode(JSON.stringify({ status: 'initializing', message: 'Checking available keys...' }) + '\n'));
-
         let lastError: any = null;
-        for (let i = 0; i < apiKeys.length; i++) {
-          const apiKey = apiKeys[i];
+        
+        for (let i = 0; i < keysToTry.length; i++) {
+          const apiKey = keysToTry[i];
           try {
             const ai = new GoogleGenAI({ apiKey });
-            controller.enqueue(encoder.encode(JSON.stringify({ status: 'analyzing', message: `Categorizing tabs (Key ${i + 1}/${apiKeys.length})...` }) + '\n'));
+            controller.enqueue(encoder.encode(JSON.stringify({ 
+              status: 'analyzing', 
+              message: userApiKey ? 'Using your personal API key...' : `Using system key (Rotation ${i+1}/${keysToTry.length})...` 
+            }) + '\n'));
 
             const response = await ai.models.generateContent({
               model: 'gemini-2.0-flash-lite',
@@ -91,11 +100,10 @@ export default async function handler(req: Request) {
 
           } catch (error: any) {
             lastError = error;
-            // Check for quota/rate limit errors to trigger rotation
-            const isRateLimit = error.message?.includes('429') || error.message?.includes('Quota') || error.message?.includes('RESOURCE_EXHAUSTED');
+            const isRateLimit = error.message?.includes('429') || error.message?.includes('Quota');
             
-            if (isRateLimit && i < apiKeys.length - 1) {
-              controller.enqueue(encoder.encode(JSON.stringify({ status: 'retry', message: `Key ${i + 1} exhausted. Trying next key...` }) + '\n'));
+            if (isRateLimit && !userApiKey && i < keysToTry.length - 1) {
+              controller.enqueue(encoder.encode(JSON.stringify({ status: 'retry', message: 'Quota exhausted. Rotating keys...' }) + '\n'));
               continue;
             } else {
               break;
@@ -103,20 +111,16 @@ export default async function handler(req: Request) {
           }
         }
 
-        // Final failure if all keys or fatal error
         controller.enqueue(encoder.encode(JSON.stringify({ 
           status: 'error', 
-          message: lastError?.message || 'All API keys failed or quota fully exhausted.' 
+          message: lastError?.message || 'Failed to process request.' 
         }) + '\n'));
         controller.close();
       }
     });
 
     return new Response(stream, {
-      headers: { 
-        'Content-Type': 'application/x-ndjson',
-        'Cache-Control': 'no-cache',
-      },
+      headers: { 'Content-Type': 'application/x-ndjson' },
     });
 
   } catch (error: any) {
